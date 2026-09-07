@@ -49,7 +49,20 @@ pnpm build    # build client (dist/public) + bundle serveur (dist/index.js)
 
 ## Déploiement GitHub Pages
 
-Le déploiement est automatisé via `.github/workflows/deploy.yml` : chaque push sur `main` construit le site (base `/chiken_dash/`) et le publie sur **https://brou01.github.io/chiken_dash/**. Un `404.html` (copie de `index.html`) permet au routeur client de gérer toutes les URLs.
+Le site est en ligne sur **https://brou01.github.io/chiken_dash/** (branche `gh-pages`, configurée dans Settings → Pages).
+
+Pour publier une nouvelle version :
+
+```bash
+pnpm exec vite build --base=/chiken_dash/
+git worktree add --detach .gh-pages-worktree HEAD
+cd .gh-pages-worktree && git checkout --orphan gh-pages && git rm -rf -q . \
+  && cp -r ../dist/public/* . && cp index.html 404.html \
+  && git add -A && git commit -m "Deploy" && git push -u origin gh-pages
+cd .. && git worktree remove --force .gh-pages-worktree
+```
+
+Le `404.html` (copie de `index.html`) permet au routeur client de gérer toutes les URLs. Un workflow GitHub Actions (`.github/workflows/deploy.yml`) est également prêt : dès que les identifiants disposent du scope `workflow` (`gh auth refresh -s workflow`), poussez-le et passez Pages en source « GitHub Actions » pour un déploiement automatique à chaque push sur `main`.
 
 ## Équité
 
