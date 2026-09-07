@@ -1,6 +1,7 @@
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { Route, Switch } from "wouter";
+import { Route, Router as WouterRouter, Switch } from "wouter";
+import { BASE_PATH } from "@/lib/baseUrl";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Fairness from "./pages/Fairness";
@@ -11,14 +12,16 @@ import Landing from "./pages/Landing";
 
 function Router() {
   return (
-    <Switch>
-      <Route path="/" component={Landing} />
-      <Route path="/game" component={Home} />
-      <Route path="/how-to-play" component={HowToPlay} />
-      <Route path="/fairness" component={Fairness} />
-      <Route path="/history" component={History} />
-      <Route component={Landing} />
-    </Switch>
+    <WouterRouter base={BASE_PATH}>
+      <Switch>
+        <Route path="/" component={Landing} />
+        <Route path="/game" component={Home} />
+        <Route path="/how-to-play" component={HowToPlay} />
+        <Route path="/fairness" component={Fairness} />
+        <Route path="/history" component={History} />
+        <Route component={Landing} />
+      </Switch>
+    </WouterRouter>
   );
 }
 

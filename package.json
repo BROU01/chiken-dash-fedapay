@@ -1,6 +1,7 @@
 {
   "name": "chiken_crash",
   "version": "1.0.0",
+  "description": "Chicken Crash — démo de crash game en français : portefeuille F CFA, pilote automatique et équité vérifiable.",
   "type": "module",
   "license": "MIT",
   "scripts": {
