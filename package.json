@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "concurrently -k -n web,api -c blue,yellow \"vite --host\" \"tsx watch server/index.ts\"",
     "build": "vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
+    "build:vercel": "vite build",
     "start": "NODE_ENV=production node dist/index.js",
     "preview": "vite preview --host",
     "check": "tsc --noEmit",
