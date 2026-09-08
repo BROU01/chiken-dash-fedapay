@@ -1,6 +1,6 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, type ReactNode } from "react";
 import { authClient } from "@/lib/authClient";
-import { api } from "@/lib/api";
+import { trpc } from "@/lib/trpc";
 
 interface User {
   id: string;
@@ -29,30 +29,19 @@ const AuthContext = createContext<AuthState | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const session = authClient.useSession();
-  const [balance, setBalance] = useState(0);
 
   const sessionUser = session.data?.user as ({ id: string; email: string; firstName: string; lastName: string } & Record<string, unknown>) | undefined;
   const user: User | null = sessionUser
     ? { id: sessionUser.id, email: sessionUser.email, firstName: sessionUser.firstName, lastName: sessionUser.lastName }
     : null;
-  const userId = user?.id;
 
-  const refreshBalance = useCallback(async () => {
-    if (!userId) {
-      setBalance(0);
-      return;
-    }
-    try {
-      const data = await api.get<{ balance: number }>("/wallet/balance");
-      setBalance(data.balance);
-    } catch {
-      setBalance(0);
-    }
-  }, [userId]);
+  const utils = trpc.useUtils();
+  const balanceQuery = trpc.wallet.balance.useQuery(undefined, { enabled: !!user, refetchOnWindowFocus: false });
+  const balance = balanceQuery.data?.balance ?? 0;
 
-  useEffect(() => {
-    refreshBalance();
-  }, [refreshBalance]);
+  const refresh = useCallback(async () => {
+    await utils.wallet.balance.invalidate();
+  }, [utils]);
 
   const register: AuthState["register"] = useCallback(async (input) => {
     const { error } = await authClient.signUp.email({
@@ -74,12 +63,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     await authClient.signOut();
-  }, []);
+    await utils.invalidate();
+  }, [utils]);
 
   return (
-    <AuthContext.Provider value={{ user, balance, loading: session.isPending, refresh: refreshBalance, register, login, logout }}>
-      {children}
-    </AuthContext.Provider>
+    <AuthContext.Provider value={{ user, balance, loading: session.isPending, refresh, register, login, logout }}>{children}</AuthContext.Provider>
   );
 }
 

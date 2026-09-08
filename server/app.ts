@@ -1,8 +1,10 @@
+import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { toNodeHandler } from "better-auth/node";
 import express, { type ErrorRequestHandler } from "express";
 import { auth } from "./betterAuth";
-import { gameRouter } from "./routes/game";
-import { fedapayWebhookRouter, walletRouter } from "./routes/wallet";
+import { fedapayWebhookRouter } from "./routes/webhooks";
+import { createContext } from "./trpc/context";
+import { appRouter } from "./trpc/router";
 
 export function createApp() {
   const app = express();
@@ -17,8 +19,7 @@ export function createApp() {
 
   app.use(express.json());
 
-  app.use("/api/game", gameRouter);
-  app.use("/api/wallet", walletRouter);
+  app.use("/api/trpc", createExpressMiddleware({ router: appRouter, createContext }));
 
   const onError: ErrorRequestHandler = (err, _req, res, _next) => {
     console.error(err);

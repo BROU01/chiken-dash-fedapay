@@ -72,6 +72,7 @@ Pour chaque manche : une graine serveur est générée, son empreinte SHA-256 pu
 ## Stack technique
 
 - React 19, TypeScript, Vite 7, Tailwind CSS 4, composants shadcn/Radix, icônes lucide-react.
+- tRPC + TanStack Query pour l'API : les types du routeur serveur (`server/trpc/router.ts`) sont importés directement côté client, sans génération de code ni schéma REST séparé à maintenir.
 - Express 5, Postgres (Neon) + Drizzle ORM, Better Auth (email/mot de passe) pour l'authentification.
 - FedaPay pour les paiements Mobile Money.
 

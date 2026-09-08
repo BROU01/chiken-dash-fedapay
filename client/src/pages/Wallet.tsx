@@ -1,8 +1,9 @@
+import { TRPCClientError } from "@trpc/client";
 import { ArrowDownToLine, ArrowUpFromLine, Lock } from "lucide-react";
 import { useEffect, useState } from "react";
 import SiteHeader from "@/components/SiteHeader";
 import { useAuth } from "@/hooks/useAuth";
-import { api, ApiError } from "@/lib/api";
+import { trpc } from "@/lib/trpc";
 
 const MODE_OPTIONS = [
   { value: "mtn_open", label: "MTN Bénin", country: "bj" },
@@ -14,15 +15,6 @@ const MODE_OPTIONS = [
 
 const numberFormatter = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
 
-interface LedgerEntry {
-  id: string;
-  type: string;
-  amount: string;
-  status: string;
-  provider: string | null;
-  created_at: string;
-}
-
 const TYPE_LABEL: Record<string, string> = { deposit: "Dépôt", withdrawal: "Retrait", bet: "Mise", payout: "Gain", adjustment: "Ajustement" };
 const STATUS_LABEL: Record<string, string> = { pending: "en attente", completed: "terminé", failed: "échoué", cancelled: "annulé" };
 
@@ -33,13 +25,12 @@ export default function Wallet() {
   const [depositAmount, setDepositAmount] = useState(1000);
   const [withdrawAmount, setWithdrawAmount] = useState(1000);
   const [notice, setNotice] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [entries, setEntries] = useState<LedgerEntry[]>([]);
 
-  useEffect(() => {
-    if (!user) return;
-    api.get<{ entries: LedgerEntry[] }>("/wallet/transactions").then((data) => setEntries(data.entries));
-  }, [user]);
+  const transactionsQuery = trpc.wallet.transactions.useQuery(undefined, { enabled: !!user });
+  const entries = transactionsQuery.data?.entries ?? [];
+  const depositMutation = trpc.wallet.deposit.useMutation();
+  const withdrawMutation = trpc.wallet.withdraw.useMutation();
+  const busy = depositMutation.isPending || withdrawMutation.isPending;
 
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get("deposit") === "callback") {
@@ -52,24 +43,20 @@ export default function Wallet() {
 
   async function handleDeposit(event: React.FormEvent) {
     event.preventDefault();
-    setBusy(true);
     setNotice(null);
     try {
-      const result = await api.post<{ paymentUrl: string }>("/wallet/deposit", { amount: depositAmount, mode, phoneNumber: phone, phoneCountry: country });
+      const result = await depositMutation.mutateAsync({ amount: depositAmount, mode, phoneNumber: phone, phoneCountry: country });
       window.location.href = result.paymentUrl;
-    } catch (error) {
-      setNotice(error instanceof ApiError ? "Le dépôt n'a pas pu être initié — vérifiez le numéro et réessayez." : "Erreur inattendue.");
-    } finally {
-      setBusy(false);
+    } catch {
+      setNotice("Le dépôt n'a pas pu être initié — vérifiez le numéro et réessayez.");
     }
   }
 
   async function handleWithdraw(event: React.FormEvent) {
     event.preventDefault();
-    setBusy(true);
     setNotice(null);
     try {
-      const result = await api.post<{ status: string }>("/wallet/withdraw", { amount: withdrawAmount, mode, phoneNumber: phone, phoneCountry: country });
+      const result = await withdrawMutation.mutateAsync({ amount: withdrawAmount, mode, phoneNumber: phone, phoneCountry: country });
       await refresh();
       setNotice(
         result.status === "pending_review"
@@ -77,9 +64,9 @@ export default function Wallet() {
           : "Retrait envoyé vers votre compte Mobile Money.",
       );
     } catch (error) {
-      setNotice(error instanceof ApiError && error.code === "INSUFFICIENT_FUNDS" ? "Solde insuffisant pour ce retrait." : "Le retrait n'a pas pu être initié.");
-    } finally {
-      setBusy(false);
+      setNotice(
+        error instanceof TRPCClientError && error.message === "INSUFFICIENT_FUNDS" ? "Solde insuffisant pour ce retrait." : "Le retrait n'a pas pu être initié.",
+      );
     }
   }
 
@@ -187,11 +174,11 @@ export default function Wallet() {
           {entries.map((entry) => (
             <div className="round-chip" key={entry.id} style={{ justifyContent: "space-between" }}>
               <span>
-                {TYPE_LABEL[entry.type] ?? entry.type} · {new Date(entry.created_at).toLocaleString("fr-FR")} · {STATUS_LABEL[entry.status] ?? entry.status}
+                {TYPE_LABEL[entry.type] ?? entry.type} · {new Date(entry.createdAt).toLocaleString("fr-FR")} · {STATUS_LABEL[entry.status] ?? entry.status}
               </span>
               <strong>
-                {Number(entry.amount) >= 0 ? "+" : ""}
-                {numberFormatter.format(Number(entry.amount))} FCFA
+                {entry.amount >= 0 ? "+" : ""}
+                {numberFormatter.format(entry.amount)} FCFA
               </strong>
             </div>
           ))}

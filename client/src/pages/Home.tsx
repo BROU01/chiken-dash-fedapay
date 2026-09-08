@@ -2,9 +2,10 @@ import { useMemo, useState } from "react";
 import { ArrowUpRight, BadgeCheck, Copy, History, Lock, ShieldCheck, Sparkles, TrendingUp, Wallet, X } from "lucide-react";
 import { ChickenMascot } from "@/components/ChickenMascot";
 import SiteHeader from "@/components/SiteHeader";
+import { TRPCClientError } from "@trpc/client";
 import { useAuth } from "@/hooks/useAuth";
 import { type RoundView, useGameState } from "@/hooks/useGameState";
-import { api, ApiError } from "@/lib/api";
+import { trpc } from "@/lib/trpc";
 
 const numberFormatter = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
 const xFormatter = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -28,7 +29,7 @@ const ERROR_MESSAGES: Record<string, string> = {
 };
 
 function errorMessage(error: unknown): string {
-  if (error instanceof ApiError) return ERROR_MESSAGES[error.code] ?? "Une erreur est survenue.";
+  if (error instanceof TRPCClientError) return ERROR_MESSAGES[error.message] ?? "Une erreur est survenue.";
   return "Une erreur est survenue.";
 }
 
@@ -71,10 +72,13 @@ export default function Home() {
   const yourBet = state?.yourBet ?? null;
   const displayLost = state?.status === "crashed" && yourBet?.status === "placed";
 
+  const betMutation = trpc.game.bet.useMutation();
+  const cashoutMutation = trpc.game.cashout.useMutation();
+
   async function handleBet() {
     setBusy(true);
     try {
-      await api.post("/game/bet", { stake, autoCashoutTarget: autoEnabled ? autoTarget : null });
+      await betMutation.mutateAsync({ stake, autoCashoutTarget: autoEnabled ? autoTarget : null });
       await refreshNow();
       await refresh();
       setNotice(`Mise de ${formatMoney(stake)} placée. Décollage imminent.`);
@@ -88,7 +92,7 @@ export default function Home() {
   async function handleCashOut() {
     setBusy(true);
     try {
-      const view = await api.post<RoundView>("/game/cashout");
+      const view: RoundView = await cashoutMutation.mutateAsync();
       await refreshNow();
       await refresh();
       const payout = view.yourBet?.payout ?? 0;

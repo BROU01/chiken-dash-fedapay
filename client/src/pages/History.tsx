@@ -1,33 +1,18 @@
 import { ArrowRight, BarChart3, Clock3, History as HistoryIcon, Plane, TrendingUp } from "lucide-react";
-import { useEffect, useState } from "react";
 import SiteHeader from "@/components/SiteHeader";
 import { useAuth } from "@/hooks/useAuth";
-import { api } from "@/lib/api";
-
-interface BetRow {
-  id: string;
-  stake: string;
-  status: "placed" | "cashed" | "lost";
-  cashout_multiplier: string | null;
-  payout: string | null;
-  crash_point: string;
-  created_at: string;
-}
+import { trpc } from "@/lib/trpc";
 
 const xFormatter = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export default function History() {
   const { user } = useAuth();
-  const [bets, setBets] = useState<BetRow[] | null>(null);
-
-  useEffect(() => {
-    if (!user) return;
-    api.get<{ bets: BetRow[] }>("/game/history").then((data) => setBets(data.bets));
-  }, [user]);
+  const { data } = trpc.game.history.useQuery(undefined, { enabled: !!user });
+  const bets = data ?? null;
 
   const wins = bets?.filter((bet) => bet.status === "cashed").length ?? 0;
   const successRate = bets && bets.length > 0 ? ((wins / bets.length) * 100).toFixed(1) : "—";
-  const best = bets && bets.length > 0 ? Math.max(...bets.map((bet) => Number(bet.cashout_multiplier ?? 0))) : 0;
+  const best = bets && bets.length > 0 ? Math.max(...bets.map((bet) => bet.cashoutMultiplier ?? 0)) : 0;
 
   return (
     <main className="marketing-shell info-page history-page">
@@ -76,8 +61,8 @@ export default function History() {
             <div className="history-grid">
               {(bets ?? []).map((bet) => (
                 <div className={`history-value ${bet.status === "lost" ? "danger" : ""}`} key={bet.id}>
-                  <span className="round-index">{new Date(bet.created_at).toLocaleTimeString("fr-FR")}</span>
-                  <strong>{bet.status === "lost" ? xFormatter.format(Number(bet.crash_point)) + "x" : xFormatter.format(Number(bet.cashout_multiplier)) + "x"}</strong>
+                  <span className="round-index">{new Date(bet.createdAt).toLocaleTimeString("fr-FR")}</span>
+                  <strong>{xFormatter.format(bet.status === "lost" ? bet.crashPoint : (bet.cashoutMultiplier ?? bet.crashPoint))}x</strong>
                   <small>{bet.status === "cashed" ? `+${bet.payout} FCFA` : bet.status === "lost" ? `−${bet.stake} FCFA` : "en cours"}</small>
                 </div>
               ))}
