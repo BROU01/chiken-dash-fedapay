@@ -23,10 +23,11 @@
 - **Base de données** : Postgres (Neon recommandé) via Drizzle ORM (`db/schema.ts`) — le driver reste `pg` standard (compatible Neon, Supabase, Vercel Postgres ou toute instance Postgres classique) ; aucun runtime edge de ce projet ne parle directement à la base, donc pas besoin du driver HTTP/WebSocket `@neondatabase/serverless`. Migrations générées et versionnées via `drizzle-kit` (`db/migrations/`), inspectables avec Drizzle Studio (`pnpm db:studio`).
 - **Paiement** : FedaPay (Mobile Money Afrique) pour les dépôts (Transactions API) et les retraits (Payouts API).
 - **Jeu** : moteur "crash" server-authoritative (`server/game.ts`). Une seule manche partagée à la fois ; son état est recalculé à partir d'horodatages (pas de minuteur en mémoire), ce qui le rend compatible avec des fonctions serverless sans état. Le point de crash est dérivé de `HMAC-SHA256(graine_serveur, nonce)`, avec la graine engagée (son empreinte SHA-256) publiée avant l'ouverture des mises et révélée après le crash — vérifiable indépendamment.
+- **Temps réel** : `party/game.ts`, un petit service PartyKit (Cloudflare Workers) qui sonde `game.state` côté serveur toutes les 200 ms et pousse chaque changement à tous les navigateurs connectés par WebSocket (`partysocket` côté client, fusionné avec le sondage tRPC authentifié dans `client/src/hooks/useGameState.ts`, seule source de `yourBet` car le relais PartyKit n'a pas de session utilisateur). Entièrement optionnel : sans `VITE_PARTYKIT_HOST`, le client revient de lui-même au sondage tRPC pur (250 ms) — le jeu reste fonctionnellement identique, juste moins fluide visuellement.
 
 ### Limite connue
 
-L'état de la manche est **interrogé par sondage** (polling HTTP toutes les 250 ms) plutôt que poussé en temps réel par WebSocket, pour rester compatible avec les fonctions serverless Vercel (sans connexion persistante). C'est fonctionnellement correct et suffisant pour un lancement, mais moins fluide qu'un flux WebSocket. Migrer vers un flux temps réel nécessiterait un petit service à état (ex. sur Fly.io/Railway) dédié au diffusion de l'état de la manche.
+Le relais PartyKit lui-même sonde `game.state` par HTTP (200 ms) plutôt que d'être notifié par événement — c'est le serveur applicatif qui reste la seule source de vérité et le seul à trancher les mises/encaissements ; PartyKit ne fait que rediffuser plus vite et à moindre coût réseau ce que chaque client irait chercher individuellement.
 
 ## Démarrage local
 
@@ -38,17 +39,21 @@ pnpm dev                     # Vite (port 3000) + API Express (port 8787, proxé
 pnpm db:studio               # explorer/éditer les données via Drizzle Studio
 pnpm check                   # vérification TypeScript (tsc --noEmit)
 pnpm build                   # build client (dist/public) + bundle serveur (dist/index.js)
+npx partykit dev             # optionnel : lance le relais temps réel en local (port 1999)
 ```
 
 Après une modification de `db/schema.ts`, régénérer une migration avec `pnpm db:generate` avant de rejouer `pnpm db:migrate`.
 
+Pour tester le relais temps réel en local : lancez `npx partykit dev` dans un second terminal (il lit `APP_ORIGIN` dans `partykit.json`, déjà pointé sur `http://localhost:3000`), puis ajoutez `VITE_PARTYKIT_HOST=127.0.0.1:1999` à votre `.env` et relancez `pnpm dev`.
+
 ## Déploiement sur Vercel
 
 1. Créer une base Postgres managée (Neon, Supabase, ou Vercel Postgres) et copier son `DATABASE_URL`.
-2. Sur le projet Vercel, renseigner dans **Settings → Environment Variables** toutes les clés listées dans `.env.example` : `DATABASE_URL`, `BETTER_AUTH_SECRET`, `APP_BASE_URL` (l'URL Vercel du projet), `FEDAPAY_SECRET_KEY`, `FEDAPAY_ENVIRONMENT`, `FEDAPAY_WEBHOOK_SECRET`, `WITHDRAWAL_AUTO_APPROVE`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`.
+2. Sur le projet Vercel, renseigner dans **Settings → Environment Variables** toutes les clés listées dans `.env.example` : `DATABASE_URL`, `BETTER_AUTH_SECRET`, `APP_BASE_URL` (l'URL Vercel du projet), `FEDAPAY_SECRET_KEY`, `FEDAPAY_ENVIRONMENT`, `FEDAPAY_WEBHOOK_SECRET`, `WITHDRAWAL_AUTO_APPROVE`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, et `VITE_PARTYKIT_HOST` (voir étape 6, optionnel — variable de build, donc à renseigner *avant* de déployer).
 3. Lancer `pnpm db:migrate` une fois (en local, avec `DATABASE_URL` pointé vers la base de production) pour créer les tables avant le premier déploiement.
 4. Déployer (`vercel.json` définit déjà `buildCommand`, `outputDirectory` et la réécriture SPA). Les routes `/api/*` sont servies par `api/[...path].ts`, le reste par les fichiers statiques du build.
 5. Dans le tableau de bord FedaPay, configurer le **webhook** vers `https://<votre-domaine>/api/wallet/webhooks/fedapay` et copier son secret de signature dans `FEDAPAY_WEBHOOK_SECRET`.
+6. *(Optionnel, temps réel)* Déployer le relais PartyKit séparément (il ne vit pas sur Vercel — c'est un petit service Cloudflare Workers à part) : `npx partykit deploy --var APP_ORIGIN=https://<votre-domaine>`. Copier l'hôte affiché (`chicken-crash.<compte>.partykit.dev`) dans `VITE_PARTYKIT_HOST` sur Vercel, puis redéployer le frontend pour qu'il l'utilise. Sans cette étape, le jeu fonctionne normalement, juste avec le sondage tRPC classique plutôt que le flux WebSocket.
 
 ## FedaPay — ce qui est câblé, et ce qu'il faut vérifier avant le mode réel
 
@@ -76,6 +81,7 @@ Pour chaque manche : une graine serveur est générée, son empreinte SHA-256 pu
 - tRPC + TanStack Query pour l'API : les types du routeur serveur (`server/trpc/router.ts`) sont importés directement côté client, sans génération de code ni schéma REST séparé à maintenir.
 - Express 5, Postgres (Neon) + Drizzle ORM, Better Auth (email/mot de passe) pour l'authentification.
 - FedaPay pour les paiements Mobile Money ; Cloudflare R2 (S3-compatible) pour le stockage des documents KYC, via URL présignées.
+- PartyKit (Cloudflare Workers) pour la diffusion temps réel optionnelle de l'état de la manche, via `partysocket` côté client.
 
 ## Licence
 

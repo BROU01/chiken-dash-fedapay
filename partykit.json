@@ -1,0 +1,9 @@
+{
+  "$schema": "https://www.partykit.io/schema.json",
+  "name": "chicken-crash",
+  "main": "party/game.ts",
+  "compatibilityDate": "2024-01-01",
+  "vars": {
+    "APP_ORIGIN": "http://localhost:3000"
+  }
+}

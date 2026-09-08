@@ -7,6 +7,9 @@ dist/
 build/
 *.dist
 
+# PartyKit local dev cache
+.partykit/
+
 # Environment variables
 .env
 .env.local
