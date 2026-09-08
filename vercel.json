@@ -3,7 +3,7 @@
   "outputDirectory": "dist/public",
   "installCommand": "pnpm install",
   "functions": {
-    "api/**/*.ts": {}
+    "api/**/*.ts": { "maxDuration": 30 }
   },
   "rewrites": [{ "source": "/((?!api/).*)", "destination": "/index.html" }]
 }
