@@ -151,12 +151,39 @@ export const bets = pgTable(
   ],
 );
 
+export const kycDocumentTypeValues = ["id_front", "id_back", "proof_of_address"] as const;
+export const kycDocumentStatusValues = ["pending", "approved", "rejected"] as const;
+
+export const kycDocuments = pgTable(
+  "kyc_documents",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    documentType: text("document_type", { enum: kycDocumentTypeValues }).notNull(),
+    r2Key: text("r2_key").notNull(),
+    status: text("status", { enum: kycDocumentStatusValues }).notNull().default("pending"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("kyc_documents_user_id_idx").on(table.userId, table.createdAt),
+    check("kyc_documents_type_check", sql`${table.documentType} in ('id_front','id_back','proof_of_address')`),
+    check("kyc_documents_status_check", sql`${table.status} in ('pending','approved','rejected')`),
+  ],
+);
+
 export const usersRelations = relations(users, ({ one, many }) => ({
   wallet: one(wallets, { fields: [users.id], references: [wallets.userId] }),
   ledgerEntries: many(ledgerEntries),
   bets: many(bets),
   sessions: many(sessions),
   accounts: many(accounts),
+  kycDocuments: many(kycDocuments),
+}));
+
+export const kycDocumentsRelations = relations(kycDocuments, ({ one }) => ({
+  user: one(users, { fields: [kycDocuments.userId], references: [users.id] }),
 }));
 
 export const sessionsRelations = relations(sessions, ({ one }) => ({
@@ -181,3 +208,4 @@ export type Wallet = typeof wallets.$inferSelect;
 export type LedgerEntry = typeof ledgerEntries.$inferSelect;
 export type Round = typeof rounds.$inferSelect;
 export type Bet = typeof bets.$inferSelect;
+export type KycDocument = typeof kycDocuments.$inferSelect;

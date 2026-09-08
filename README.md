@@ -45,7 +45,7 @@ Après une modification de `db/schema.ts`, régénérer une migration avec `pnpm
 ## Déploiement sur Vercel
 
 1. Créer une base Postgres managée (Neon, Supabase, ou Vercel Postgres) et copier son `DATABASE_URL`.
-2. Sur le projet Vercel, renseigner dans **Settings → Environment Variables** toutes les clés listées dans `.env.example` : `DATABASE_URL`, `BETTER_AUTH_SECRET`, `APP_BASE_URL` (l'URL Vercel du projet), `FEDAPAY_SECRET_KEY`, `FEDAPAY_ENVIRONMENT`, `FEDAPAY_WEBHOOK_SECRET`, `WITHDRAWAL_AUTO_APPROVE`.
+2. Sur le projet Vercel, renseigner dans **Settings → Environment Variables** toutes les clés listées dans `.env.example` : `DATABASE_URL`, `BETTER_AUTH_SECRET`, `APP_BASE_URL` (l'URL Vercel du projet), `FEDAPAY_SECRET_KEY`, `FEDAPAY_ENVIRONMENT`, `FEDAPAY_WEBHOOK_SECRET`, `WITHDRAWAL_AUTO_APPROVE`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`.
 3. Lancer `pnpm db:migrate` une fois (en local, avec `DATABASE_URL` pointé vers la base de production) pour créer les tables avant le premier déploiement.
 4. Déployer (`vercel.json` définit déjà `buildCommand`, `outputDirectory` et la réécriture SPA). Les routes `/api/*` sont servies par `api/[...path].ts`, le reste par les fichiers statiques du build.
 5. Dans le tableau de bord FedaPay, configurer le **webhook** vers `https://<votre-domaine>/api/wallet/webhooks/fedapay` et copier son secret de signature dans `FEDAPAY_WEBHOOK_SECRET`.
@@ -61,8 +61,9 @@ Après une modification de `db/schema.ts`, régénérer une migration avec `pnpm
 
 ## Jeu responsable
 
-- Inscription réservée aux 18 ans et plus (vérifié à l'inscription à partir de la date de naissance).
-- La page `/wallet` est le point d'entrée prévu pour une limite de dépôt et une auto-exclusion (le champ `deposit_limit_daily` et `self_excluded_until` existent déjà dans le schéma ; l'UI de configuration est à compléter selon votre politique produit).
+- Inscription réservée aux 18 ans et plus (vérifié à l'inscription à partir de la date de naissance, refusé côté serveur avant même la création du compte).
+- `/wallet` permet d'envoyer une pièce d'identité (KYC) — stockée dans Cloudflare R2 via URL présignée (le fichier va directement du navigateur au bucket, jamais par notre serveur), avec un statut `pending` / `approved` / `rejected` en base (`kyc_documents`). La validation elle-même (comparer le document, approuver/refuser) reste à construire côté opérateur — aucune vérification automatique n'est faite.
+- Le champ `deposit_limit_daily` et `self_excluded_until` existent déjà dans le schéma pour une limite de dépôt et une auto-exclusion ; l'UI de configuration est à compléter selon votre politique produit.
 - Aucune fonctionnalité de mise automatique illimitée : l'encaissement automatique optionnel cible un seul multiplicateur par manche, pas une série de manches enchaînées sans intervention.
 
 ## Équité vérifiable
@@ -74,7 +75,7 @@ Pour chaque manche : une graine serveur est générée, son empreinte SHA-256 pu
 - React 19, TypeScript, Vite 7, Tailwind CSS 4, composants shadcn/Radix, icônes lucide-react.
 - tRPC + TanStack Query pour l'API : les types du routeur serveur (`server/trpc/router.ts`) sont importés directement côté client, sans génération de code ni schéma REST séparé à maintenir.
 - Express 5, Postgres (Neon) + Drizzle ORM, Better Auth (email/mot de passe) pour l'authentification.
-- FedaPay pour les paiements Mobile Money.
+- FedaPay pour les paiements Mobile Money ; Cloudflare R2 (S3-compatible) pour le stockage des documents KYC, via URL présignées.
 
 ## Licence
 

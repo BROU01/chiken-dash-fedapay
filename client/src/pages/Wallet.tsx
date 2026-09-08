@@ -1,9 +1,15 @@
 import { TRPCClientError } from "@trpc/client";
-import { ArrowDownToLine, ArrowUpFromLine, Lock } from "lucide-react";
-import { useEffect, useState } from "react";
+import { ArrowDownToLine, ArrowUpFromLine, BadgeCheck, Clock3, IdCard, Lock, XCircle } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import SiteHeader from "@/components/SiteHeader";
 import { useAuth } from "@/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
+
+const KYC_STATUS_META: Record<string, { label: string; icon: typeof BadgeCheck }> = {
+  pending: { label: "en cours de vérification", icon: Clock3 },
+  approved: { label: "vérifié", icon: BadgeCheck },
+  rejected: { label: "refusé — réessayez", icon: XCircle },
+};
 
 const MODE_OPTIONS = [
   { value: "mtn_open", label: "MTN Bénin", country: "bj" },
@@ -31,6 +37,40 @@ export default function Wallet() {
   const depositMutation = trpc.wallet.deposit.useMutation();
   const withdrawMutation = trpc.wallet.withdraw.useMutation();
   const busy = depositMutation.isPending || withdrawMutation.isPending;
+
+  const kycDocsQuery = trpc.kyc.myDocuments.useQuery(undefined, { enabled: !!user });
+  const requestUploadUrl = trpc.kyc.requestUploadUrl.useMutation();
+  const confirmUpload = trpc.kyc.confirmUpload.useMutation();
+  const [kycBusy, setKycBusy] = useState(false);
+  const [kycNotice, setKycNotice] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  async function handleKycUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setKycBusy(true);
+    setKycNotice(null);
+    try {
+      if (!["image/jpeg", "image/png", "application/pdf"].includes(file.type)) {
+        setKycNotice("Format non supporté — utilisez une image JPEG/PNG ou un PDF.");
+        return;
+      }
+      const { uploadUrl, key } = await requestUploadUrl.mutateAsync({
+        documentType: "id_front",
+        contentType: file.type as "image/jpeg" | "image/png" | "application/pdf",
+      });
+      const putResult = await fetch(uploadUrl, { method: "PUT", body: file, headers: { "Content-Type": file.type } });
+      if (!putResult.ok) throw new Error("upload failed");
+      await confirmUpload.mutateAsync({ documentType: "id_front", key });
+      await kycDocsQuery.refetch();
+      setKycNotice("Document envoyé, en attente de vérification.");
+    } catch {
+      setKycNotice("L'envoi a échoué — réessayez.");
+    } finally {
+      setKycBusy(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
 
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get("deposit") === "callback") {
@@ -161,6 +201,46 @@ export default function Wallet() {
             Retirer {numberFormatter.format(withdrawAmount)} FCFA
           </button>
         </form>
+      </section>
+
+      <section className="history-main" style={{ width: "min(1100px, calc(100% - 88px))", margin: "0 auto 24px" }}>
+        <div className="section-heading">
+          <div>
+            <span className="eyebrow">
+              <IdCard size={13} /> Vérification d'identité
+            </span>
+            <h2>Documents KYC</h2>
+          </div>
+        </div>
+        <p className="stat-detail" style={{ padding: "6px 0 14px" }}>
+          Envoyez une pièce d'identité en cours de validité (JPEG, PNG ou PDF, 10 Mo max) pour accélérer la validation de vos retraits.
+        </p>
+        <div className="rounds-list" style={{ flexDirection: "column", alignItems: "stretch" }}>
+          {(kycDocsQuery.data ?? []).map((doc) => {
+            const meta = KYC_STATUS_META[doc.status] ?? KYC_STATUS_META.pending;
+            const Icon = meta.icon;
+            return (
+              <div className="round-chip" key={doc.id} style={{ justifyContent: "space-between" }}>
+                <span>
+                  Pièce d'identité · {new Date(doc.createdAt).toLocaleDateString("fr-FR")}
+                </span>
+                <strong style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <Icon size={13} /> {meta.label}
+                </strong>
+              </div>
+            );
+          })}
+          {kycDocsQuery.data?.length === 0 && <span className="stat-detail">Aucun document envoyé pour le moment.</span>}
+        </div>
+        <label className="primary-button" style={{ marginTop: 14, cursor: kycBusy ? "wait" : "pointer", opacity: kycBusy ? 0.6 : 1 }}>
+          <span>{kycBusy ? "Envoi en cours…" : "Envoyer une pièce d'identité"}</span>
+          <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,application/pdf" onChange={handleKycUpload} disabled={kycBusy} style={{ display: "none" }} />
+        </label>
+        {kycNotice && (
+          <p className="stat-detail" style={{ marginTop: 8 }}>
+            {kycNotice}
+          </p>
+        )}
       </section>
 
       <section className="history-main" style={{ width: "min(1100px, calc(100% - 88px))", margin: "0 auto 75px" }}>
