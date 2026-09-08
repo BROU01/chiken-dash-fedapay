@@ -1,20 +1,26 @@
-import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { migrate } from "drizzle-orm/node-postgres/migrator";
+import { Pool } from "pg";
 import { loadDotEnvIfPresent } from "../server/loadEnv";
-import { pool } from "./client";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 loadDotEnvIfPresent(path.resolve(__dirname, ".."));
 
-async function migrate() {
-  const sql = fs.readFileSync(path.join(__dirname, "schema.sql"), "utf-8");
-  await pool.query(sql);
-  console.log("Migration applied.");
+async function run() {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) throw new Error("DATABASE_URL is not set. See .env.example.");
+  const useSsl = process.env.PGSSLMODE !== "disable";
+  const pool = new Pool({ connectionString, ssl: useSsl ? { rejectUnauthorized: false } : undefined });
+  const db = drizzle(pool);
+
+  await migrate(db, { migrationsFolder: path.join(__dirname, "migrations") });
+  console.log("Migrations applied.");
   await pool.end();
 }
 
-migrate().catch((error) => {
+run().catch((error) => {
   console.error("Migration failed:", error);
   process.exit(1);
 });

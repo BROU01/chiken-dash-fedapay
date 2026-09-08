@@ -1,6 +1,8 @@
+import { and, desc, eq } from "drizzle-orm";
 import express, { Router } from "express";
 import { z } from "zod";
-import { pool, withTransaction } from "../../db/client";
+import { db } from "../../db/client";
+import { ledgerEntries, users } from "../../db/schema";
 import { requireAuth, type AuthedRequest } from "../auth";
 import { env } from "../env";
 import { createDeposit, createPayout, parseWebhookEvent, verifyWebhookSignature } from "../fedapay";
@@ -37,16 +39,18 @@ walletRouter.post("/deposit", requireAuth, async (req: AuthedRequest, res) => {
     res.status(400).json({ error: "INVALID_INPUT" });
     return;
   }
-  const { rows } = await pool.query("select email, first_name, last_name from users where id = $1", [req.userId]);
-  const user = rows[0];
+  const [user] = await db
+    .select({ email: users.email, firstName: users.firstName, lastName: users.lastName })
+    .from(users)
+    .where(eq(users.id, req.userId!));
   try {
     const deposit = await createDeposit({
       amount: parsed.data.amount,
       description: `Dépôt Chicken Crash — ${parsed.data.amount} FCFA`,
       userId: req.userId!,
       customer: {
-        firstName: user.first_name,
-        lastName: user.last_name,
+        firstName: user.firstName,
+        lastName: user.lastName,
         email: user.email,
         phoneNumber: parsed.data.phoneNumber,
         phoneCountry: parsed.data.phoneCountry,
@@ -72,14 +76,13 @@ walletRouter.post("/withdraw", requireAuth, async (req: AuthedRequest, res) => {
     res.status(400).json({ error: "INVALID_INPUT" });
     return;
   }
-  const { rows } = await pool.query("select email, first_name, last_name from users where id = $1", [req.userId]);
-  const user = rows[0];
+  const [user] = await db
+    .select({ email: users.email, firstName: users.firstName, lastName: users.lastName })
+    .from(users)
+    .where(eq(users.id, req.userId!));
 
   try {
-    await withTransaction(async (client) => {
-      // Reserve the funds immediately so the same balance can't be withdrawn twice.
-      await adjustWallet(client, req.userId!, -parsed.data.amount, { type: "withdrawal", status: "pending" });
-    });
+    await db.transaction((tx) => adjustWallet(tx, req.userId!, -parsed.data.amount, { type: "withdrawal", status: "pending" }));
   } catch (error) {
     if (error instanceof InsufficientFundsError) {
       res.status(402).json({ error: "INSUFFICIENT_FUNDS" });
@@ -98,22 +101,31 @@ walletRouter.post("/withdraw", requireAuth, async (req: AuthedRequest, res) => {
       amount: parsed.data.amount,
       mode: parsed.data.mode,
       customer: {
-        firstName: user.first_name,
-        lastName: user.last_name,
+        firstName: user.firstName,
+        lastName: user.lastName,
         email: user.email,
         phoneNumber: parsed.data.phoneNumber,
         phoneCountry: parsed.data.phoneCountry,
       },
     });
-    await pool.query(
-      `update ledger_entries set status = 'completed', provider = 'fedapay', provider_ref = $2
-       where user_id = $1 and type = 'withdrawal' and status = 'pending' order by created_at desc limit 1`,
-      [req.userId, String(payout.payoutId)],
-    );
+    await db.transaction(async (tx) => {
+      const [pendingEntry] = await tx
+        .select({ id: ledgerEntries.id })
+        .from(ledgerEntries)
+        .where(and(eq(ledgerEntries.userId, req.userId!), eq(ledgerEntries.type, "withdrawal"), eq(ledgerEntries.status, "pending")))
+        .orderBy(desc(ledgerEntries.createdAt))
+        .limit(1);
+      if (pendingEntry) {
+        await tx
+          .update(ledgerEntries)
+          .set({ status: "completed", provider: "fedapay", providerRef: String(payout.payoutId) })
+          .where(eq(ledgerEntries.id, pendingEntry.id));
+      }
+    });
     res.json({ status: "sent", payoutId: payout.payoutId });
   } catch (error) {
     console.error("FedaPay payout failed, refunding wallet:", error);
-    await withTransaction((client) => adjustWallet(client, req.userId!, parsed.data.amount, { type: "adjustment", status: "completed" }));
+    await db.transaction((tx) => adjustWallet(tx, req.userId!, parsed.data.amount, { type: "adjustment", status: "completed" }));
     res.status(502).json({ error: "PAYMENT_PROVIDER_ERROR" });
   }
 });
@@ -132,8 +144,8 @@ fedapayWebhookRouter.post("/fedapay", express.raw({ type: "application/json" }),
 
   if (event.name === "transaction.approved" && userId && providerRef && event.entity.amount) {
     try {
-      await withTransaction((client) =>
-        adjustWallet(client, String(userId), Number(event.entity.amount), {
+      await db.transaction((tx) =>
+        adjustWallet(tx, String(userId), Number(event.entity.amount), {
           type: "deposit",
           status: "completed",
           provider: "fedapay",

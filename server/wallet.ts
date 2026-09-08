@@ -1,5 +1,6 @@
-import type { PoolClient } from "pg";
-import { pool } from "../db/client";
+import { and, desc, eq, sql } from "drizzle-orm";
+import { db, type Tx } from "../db/client";
+import { ledgerEntries, ledgerStatusValues, ledgerTypeValues, wallets } from "../db/schema";
 
 export class InsufficientFundsError extends Error {
   constructor() {
@@ -7,19 +8,20 @@ export class InsufficientFundsError extends Error {
   }
 }
 
-export type LedgerType = "deposit" | "withdrawal" | "bet" | "payout" | "adjustment";
+export type LedgerType = (typeof ledgerTypeValues)[number];
+export type LedgerStatus = (typeof ledgerStatusValues)[number];
 
 export interface LedgerEntryInput {
   type: LedgerType;
-  status?: "pending" | "completed" | "failed" | "cancelled";
+  status?: LedgerStatus;
   provider?: string;
   providerRef?: string;
   meta?: Record<string, unknown>;
 }
 
 export async function getWalletBalance(userId: string): Promise<number> {
-  const { rows } = await pool.query<{ balance: string }>("select balance from wallets where user_id = $1", [userId]);
-  return rows[0] ? Number(rows[0].balance) : 0;
+  const [row] = await db.select({ balance: wallets.balance }).from(wallets).where(eq(wallets.userId, userId));
+  return row?.balance ?? 0;
 }
 
 /**
@@ -30,27 +32,42 @@ export async function getWalletBalance(userId: string): Promise<number> {
  * UPDATEs on the same row, so a second debit that would overdraw simply
  * matches zero rows instead of racing past the check.
  */
-export async function adjustWallet(client: PoolClient, userId: string, delta: number, entry: LedgerEntryInput): Promise<number> {
-  const { rows } = await client.query<{ balance: string }>(
-    "update wallets set balance = balance + $2, updated_at = now() where user_id = $1 and balance + $2 >= 0 returning balance",
-    [userId, delta],
-  );
-  if (rows.length === 0) {
+export async function adjustWallet(tx: Tx, userId: string, delta: number, entry: LedgerEntryInput): Promise<number> {
+  const [row] = await tx
+    .update(wallets)
+    .set({ balance: sql`${wallets.balance} + ${delta}`, updatedAt: new Date() })
+    .where(and(eq(wallets.userId, userId), sql`${wallets.balance} + ${delta} >= 0`))
+    .returning({ balance: wallets.balance });
+
+  if (!row) {
     throw new InsufficientFundsError();
   }
-  await client.query(
-    `insert into ledger_entries (user_id, type, amount, status, provider, provider_ref, meta)
-     values ($1, $2, $3, $4, $5, $6, $7)`,
-    [userId, entry.type, delta, entry.status ?? "completed", entry.provider ?? null, entry.providerRef ?? null, entry.meta ?? null],
-  );
-  return Number(rows[0].balance);
+
+  await tx.insert(ledgerEntries).values({
+    userId,
+    type: entry.type,
+    amount: delta,
+    status: entry.status ?? "completed",
+    provider: entry.provider,
+    providerRef: entry.providerRef,
+    meta: entry.meta,
+  });
+
+  return row.balance;
 }
 
 export async function listLedgerEntries(userId: string, limit = 30) {
-  const { rows } = await pool.query(
-    `select id, type, amount, status, provider, created_at
-     from ledger_entries where user_id = $1 order by created_at desc limit $2`,
-    [userId, limit],
-  );
-  return rows;
+  return db
+    .select({
+      id: ledgerEntries.id,
+      type: ledgerEntries.type,
+      amount: ledgerEntries.amount,
+      status: ledgerEntries.status,
+      provider: ledgerEntries.provider,
+      createdAt: ledgerEntries.createdAt,
+    })
+    .from(ledgerEntries)
+    .where(eq(ledgerEntries.userId, userId))
+    .orderBy(desc(ledgerEntries.createdAt))
+    .limit(limit);
 }

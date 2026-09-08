@@ -1,11 +1,22 @@
+import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import * as schema from "./schema";
 
 let realPool: Pool | undefined;
+let realDb: NodePgDatabase<typeof schema> | undefined;
 
-/** Lazily created so DATABASE_URL is only required once a query actually runs
+/**
+ * Lazily created so DATABASE_URL is only required once a query actually runs
  * (not at module import time) — this lets local dev load .env after imports
  * are resolved, and keeps a bad/missing env var from crashing the whole
- * process during a serverless cold start before any request is even routed. */
+ * process during a serverless cold start before any request is even routed.
+ *
+ * Works against any standard Postgres connection string, including Neon's —
+ * Neon's connection strings speak normal Postgres wire protocol over TLS, so
+ * the plain `pg` driver is all that's needed here. (No edge/Workers runtime
+ * touches Postgres directly in this project — PartyKit only relays state
+ * that this API already computed; see server/game.ts.)
+ */
 function getPool(): Pool {
   if (realPool) return realPool;
   const connectionString = process.env.DATABASE_URL;
@@ -24,27 +35,21 @@ function getPool(): Pool {
   return realPool;
 }
 
-/** Proxies every property/method access to the lazily-created Pool above, so
- * call sites can keep using `pool.query<T>(...)` with full generic typing. */
-export const pool: Pool = new Proxy({} as Pool, {
+function getDb(): NodePgDatabase<typeof schema> {
+  if (!realDb) {
+    realDb = drizzle(getPool(), { schema });
+  }
+  return realDb;
+}
+
+/** Drizzle query builder, lazily bound to the pool on first property access. */
+export const db: NodePgDatabase<typeof schema> = new Proxy({} as NodePgDatabase<typeof schema>, {
   get(_target, prop, _receiver) {
-    const real = getPool();
-    const value = Reflect.get(real, prop, real);
+    const real = getDb();
+    const value = Reflect.get(real as object, prop, real);
     return typeof value === "function" ? value.bind(real) : value;
   },
 });
 
-export async function withTransaction<T>(run: (client: import("pg").PoolClient) => Promise<T>): Promise<T> {
-  const client = await getPool().connect();
-  try {
-    await client.query("begin");
-    const result = await run(client);
-    await client.query("commit");
-    return result;
-  } catch (error) {
-    await client.query("rollback");
-    throw error;
-  } finally {
-    client.release();
-  }
-}
+/** `db.transaction()` re-exported through the same lazy-init path (kept for call sites that want the type). */
+export type Tx = Parameters<Parameters<NodePgDatabase<typeof schema>["transaction"]>[0]>[0];

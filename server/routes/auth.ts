@@ -1,6 +1,8 @@
+import { eq } from "drizzle-orm";
 import { Router } from "express";
 import { z } from "zod";
-import { pool } from "../../db/client";
+import { db } from "../../db/client";
+import { users, wallets } from "../../db/schema";
 import { clearSessionCookie, hashPassword, isAdult, requireAuth, setSessionCookie, signSession, verifyPassword, type AuthedRequest } from "../auth";
 import { getWalletBalance } from "../wallet";
 
@@ -22,40 +24,32 @@ authRouter.post("/register", async (req, res) => {
     return;
   }
   const { email, password, firstName, lastName, phone, birthdate } = parsed.data;
+  const normalizedEmail = email.toLowerCase();
 
   if (!isAdult(birthdate, 18)) {
     res.status(403).json({ error: "MINIMUM_AGE_NOT_MET" });
     return;
   }
 
-  const existing = await pool.query("select id from users where email = $1", [email.toLowerCase()]);
-  if (existing.rows.length > 0) {
+  const [existing] = await db.select({ id: users.id }).from(users).where(eq(users.email, normalizedEmail));
+  if (existing) {
     res.status(409).json({ error: "EMAIL_TAKEN" });
     return;
   }
 
   const passwordHash = await hashPassword(password);
-  const client = await pool.connect();
-  try {
-    await client.query("begin");
-    const { rows } = await client.query(
-      `insert into users (email, phone, password_hash, first_name, last_name, birthdate)
-       values ($1, $2, $3, $4, $5, $6) returning id, email, first_name, last_name`,
-      [email.toLowerCase(), phone, passwordHash, firstName, lastName, birthdate],
-    );
-    const user = rows[0];
-    await client.query("insert into wallets (user_id, balance) values ($1, 0)", [user.id]);
-    await client.query("commit");
+  const user = await db.transaction(async (tx) => {
+    const [created] = await tx
+      .insert(users)
+      .values({ email: normalizedEmail, phone, passwordHash, firstName, lastName, birthdate })
+      .returning({ id: users.id, email: users.email, firstName: users.firstName, lastName: users.lastName });
+    await tx.insert(wallets).values({ userId: created.id, balance: 0 });
+    return created;
+  });
 
-    const token = signSession(user.id);
-    setSessionCookie(res, token);
-    res.status(201).json({ user: { id: user.id, email: user.email, firstName: user.first_name, lastName: user.last_name }, balance: 0 });
-  } catch (error) {
-    await client.query("rollback");
-    throw error;
-  } finally {
-    client.release();
-  }
+  const token = signSession(user.id);
+  setSessionCookie(res, token);
+  res.status(201).json({ user, balance: 0 });
 });
 
 const loginSchema = z.object({ email: z.string().email(), password: z.string().min(1) });
@@ -66,19 +60,19 @@ authRouter.post("/login", async (req, res) => {
     res.status(400).json({ error: "INVALID_INPUT" });
     return;
   }
-  const { rows } = await pool.query(
-    "select id, email, first_name, last_name, password_hash from users where email = $1",
-    [parsed.data.email.toLowerCase()],
-  );
-  const user = rows[0];
-  if (!user || !(await verifyPassword(parsed.data.password, user.password_hash))) {
+  const [user] = await db
+    .select({ id: users.id, email: users.email, firstName: users.firstName, lastName: users.lastName, passwordHash: users.passwordHash })
+    .from(users)
+    .where(eq(users.email, parsed.data.email.toLowerCase()));
+
+  if (!user || !(await verifyPassword(parsed.data.password, user.passwordHash))) {
     res.status(401).json({ error: "INVALID_CREDENTIALS" });
     return;
   }
   const token = signSession(user.id);
   setSessionCookie(res, token);
   const balance = await getWalletBalance(user.id);
-  res.json({ user: { id: user.id, email: user.email, firstName: user.first_name, lastName: user.last_name }, balance });
+  res.json({ user: { id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName }, balance });
 });
 
 authRouter.post("/logout", (_req, res) => {
@@ -87,12 +81,14 @@ authRouter.post("/logout", (_req, res) => {
 });
 
 authRouter.get("/me", requireAuth, async (req: AuthedRequest, res) => {
-  const { rows } = await pool.query("select id, email, first_name, last_name from users where id = $1", [req.userId]);
-  const user = rows[0];
+  const [user] = await db
+    .select({ id: users.id, email: users.email, firstName: users.firstName, lastName: users.lastName })
+    .from(users)
+    .where(eq(users.id, req.userId!));
   if (!user) {
     res.status(401).json({ error: "AUTH_REQUIRED" });
     return;
   }
   const balance = await getWalletBalance(user.id);
-  res.json({ user: { id: user.id, email: user.email, firstName: user.first_name, lastName: user.last_name }, balance });
+  res.json({ user, balance });
 });

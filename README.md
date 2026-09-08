@@ -20,7 +20,7 @@
 
 - **Frontend** : React 19 + TypeScript + Vite 7, Tailwind CSS 4, `wouter` pour le routage.
 - **Backend** : Express, monté à la fois comme process Node classique (`server/index.ts`, pour un hébergement type Railway/Fly/VPS) et comme fonction serverless Vercel (`api/[...path].ts`, même code applicatif).
-- **Base de données** : Postgres (`db/schema.sql`), accès via `pg`. Compatible Neon, Supabase, Vercel Postgres ou toute instance Postgres classique.
+- **Base de données** : Postgres (Neon recommandé) via Drizzle ORM (`db/schema.ts`) — le driver reste `pg` standard (compatible Neon, Supabase, Vercel Postgres ou toute instance Postgres classique) ; aucun runtime edge de ce projet ne parle directement à la base, donc pas besoin du driver HTTP/WebSocket `@neondatabase/serverless`. Migrations générées et versionnées via `drizzle-kit` (`db/migrations/`), inspectables avec Drizzle Studio (`pnpm db:studio`).
 - **Paiement** : FedaPay (Mobile Money Afrique) pour les dépôts (Transactions API) et les retraits (Payouts API).
 - **Jeu** : moteur "crash" server-authoritative (`server/game.ts`). Une seule manche partagée à la fois ; son état est recalculé à partir d'horodatages (pas de minuteur en mémoire), ce qui le rend compatible avec des fonctions serverless sans état. Le point de crash est dérivé de `HMAC-SHA256(graine_serveur, nonce)`, avec la graine engagée (son empreinte SHA-256) publiée avant l'ouverture des mises et révélée après le crash — vérifiable indépendamment.
 
@@ -32,12 +32,15 @@ L'état de la manche est **interrogé par sondage** (polling HTTP toutes les 250
 
 ```bash
 pnpm install
-cp .env.example .env        # renseigner DATABASE_URL, JWT_SECRET, FEDAPAY_*
-pnpm db:migrate              # crée les tables dans la base indiquée par DATABASE_URL
+cp .env.example .env        # renseigner DATABASE_URL (Neon...), JWT_SECRET, FEDAPAY_*
+pnpm db:migrate              # applique les migrations Drizzle à la base indiquée par DATABASE_URL
 pnpm dev                     # Vite (port 3000) + API Express (port 8787, proxée par Vite)
+pnpm db:studio               # explorer/éditer les données via Drizzle Studio
 pnpm check                   # vérification TypeScript (tsc --noEmit)
 pnpm build                   # build client (dist/public) + bundle serveur (dist/index.js)
 ```
+
+Après une modification de `db/schema.ts`, régénérer une migration avec `pnpm db:generate` avant de rejouer `pnpm db:migrate`.
 
 ## Déploiement sur Vercel
 
@@ -69,7 +72,7 @@ Pour chaque manche : une graine serveur est générée, son empreinte SHA-256 pu
 ## Stack technique
 
 - React 19, TypeScript, Vite 7, Tailwind CSS 4, composants shadcn/Radix, icônes lucide-react.
-- Express, Postgres (`pg`), JWT (`jsonwebtoken`) + `bcryptjs` pour l'authentification.
+- Express 5, Postgres (Neon) + Drizzle ORM, JWT (`jsonwebtoken`) + `bcryptjs` pour l'authentification.
 - FedaPay pour les paiements Mobile Money.
 
 ## Licence

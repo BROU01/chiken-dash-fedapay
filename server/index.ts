@@ -18,7 +18,9 @@ async function startServer() {
     // (On Vercel, static files are served by the platform and only /api/* reaches this app.)
     const staticPath = path.resolve(__dirname, "public");
     app.use(express.static(staticPath));
-    app.get("*", (_req, res) => {
+    // Express 5 dropped bare "*" route patterns; a path-less middleware
+    // catches everything not already handled above (API routes, static files).
+    app.use((_req, res) => {
       res.sendFile(path.join(staticPath, "index.html"));
     });
   }
