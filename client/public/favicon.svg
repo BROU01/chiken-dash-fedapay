@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffe39b" />
+      <stop offset="100%" stop-color="#f3a832" />
+    </linearGradient>
+    <linearGradient id="comb" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f68a72" />
+      <stop offset="100%" stop-color="#df6457" />
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="#080a14" />
+  <circle cx="32" cy="38" r="20" fill="url(#body)" />
+  <path
+    d="M22 20 C20 13 27 9 31 13 C32 7 41 7 41 14 C46 11 51 17 47 23 C42 20 35 20 29 22 C26 20 24 20 22 20 Z"
+    fill="url(#comb)"
+  />
+  <path d="M14 40 L4 36 L14 31 Z" fill="#f5a94e" />
+  <rect x="18" y="29" width="28" height="14" rx="7" fill="#241703" />
+  <circle cx="25" cy="36" r="5.5" fill="#bfe7ff" />
+  <circle cx="39" cy="36" r="5.5" fill="#bfe7ff" />
+</svg>
