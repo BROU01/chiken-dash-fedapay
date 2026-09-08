@@ -1,6 +1,6 @@
-import cookieParser from "cookie-parser";
+import { toNodeHandler } from "better-auth/node";
 import express, { type ErrorRequestHandler } from "express";
-import { authRouter } from "./routes/auth";
+import { auth } from "./betterAuth";
 import { gameRouter } from "./routes/game";
 import { fedapayWebhookRouter, walletRouter } from "./routes/wallet";
 
@@ -9,14 +9,14 @@ export function createApp() {
   app.set("trust proxy", 1);
   app.disable("x-powered-by");
 
-  // Needs the raw request body for HMAC signature verification, so it is
-  // mounted before the global express.json() body parser below.
+  // Both need the raw request body (HMAC verification for the webhook,
+  // Better Auth's own body parsing for auth), so they're mounted before the
+  // global express.json() body parser below.
   app.use("/api/wallet/webhooks", fedapayWebhookRouter);
+  app.all("/api/auth/*splat", toNodeHandler(auth));
 
   app.use(express.json());
-  app.use(cookieParser());
 
-  app.use("/api/auth", authRouter);
   app.use("/api/game", gameRouter);
   app.use("/api/wallet", walletRouter);
 

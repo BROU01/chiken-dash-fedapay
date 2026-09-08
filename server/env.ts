@@ -10,8 +10,8 @@ export const env = {
   get databaseUrl() {
     return required("DATABASE_URL");
   },
-  get jwtSecret() {
-    return required("JWT_SECRET");
+  get betterAuthSecret() {
+    return required("BETTER_AUTH_SECRET");
   },
   get appBaseUrl() {
     return process.env.APP_BASE_URL || "http://localhost:3000";

@@ -3,13 +3,12 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { ChickenMark } from "@/components/ChickenMascot";
 import SiteHeader from "@/components/SiteHeader";
-import { useAuth } from "@/hooks/useAuth";
-import { ApiError } from "@/lib/api";
+import { AuthApiError, useAuth } from "@/hooks/useAuth";
 
 const REGISTER_ERRORS: Record<string, string> = {
-  EMAIL_TAKEN: "Un compte existe déjà avec cet email.",
+  USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL: "Un compte existe déjà avec cet email.",
   MINIMUM_AGE_NOT_MET: "Chicken Crash est réservé aux personnes majeures (18 ans et plus).",
-  INVALID_INPUT: "Merci de vérifier les champs du formulaire (mot de passe : 8 caractères minimum).",
+  PASSWORD_TOO_SHORT: "Le mot de passe doit contenir au moins 8 caractères.",
 };
 
 export default function Register() {
@@ -36,7 +35,7 @@ export default function Register() {
       await register(form);
       navigate("/game");
     } catch (err) {
-      setError(err instanceof ApiError ? REGISTER_ERRORS[err.code] ?? "Inscription impossible." : "Inscription impossible.");
+      setError(err instanceof AuthApiError ? REGISTER_ERRORS[err.code] ?? "Inscription impossible." : "Inscription impossible.");
     } finally {
       setBusy(false);
     }

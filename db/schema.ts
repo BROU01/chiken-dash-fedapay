@@ -1,22 +1,74 @@
-import { relations } from "drizzle-orm";
-import { bigint, bigserial, check, index, jsonb, numeric, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
-import { sql } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
+import { bigint, bigserial, boolean, check, index, jsonb, numeric, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 
+/**
+ * Better Auth-managed tables (user/session/account/verification). IDs are
+ * `text`, not `uuid` — Better Auth generates its own opaque id strings (not
+ * necessarily RFC4122 UUIDs) and always supplies them on insert, so a
+ * Postgres `uuid` column would reject them. Field *names* below (camelCase
+ * keys) are what the drizzleAdapter maps against — verified against Better
+ * Auth's own `getSchema()` output for our exact config, not guessed from
+ * memory. See server/betterAuth.ts.
+ */
 export const users = pgTable("users", {
-  id: uuid("id").primaryKey().defaultRandom(),
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
   email: text("email").notNull().unique(),
-  phone: text("phone").notNull(),
-  passwordHash: text("password_hash").notNull(),
+  emailVerified: boolean("email_verified").notNull().default(false),
+  image: text("image"),
+  // --- Chicken Crash-specific fields (Better Auth additionalFields) ---
   firstName: text("first_name").notNull(),
   lastName: text("last_name").notNull(),
+  phone: text("phone").notNull(),
   birthdate: text("birthdate").notNull(), // stored as ISO date string
   depositLimitDaily: bigint("deposit_limit_daily", { mode: "number" }),
   selfExcludedUntil: timestamp("self_excluded_until", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const sessions = pgTable("sessions", {
+  id: text("id").primaryKey(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  token: text("token").notNull().unique(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+});
+
+export const accounts = pgTable("accounts", {
+  id: text("id").primaryKey(),
+  accountId: text("account_id").notNull(),
+  providerId: text("provider_id").notNull(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  accessToken: text("access_token"),
+  refreshToken: text("refresh_token"),
+  idToken: text("id_token"),
+  accessTokenExpiresAt: timestamp("access_token_expires_at", { withTimezone: true }),
+  refreshTokenExpiresAt: timestamp("refresh_token_expires_at", { withTimezone: true }),
+  scope: text("scope"),
+  password: text("password"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const verifications = pgTable("verifications", {
+  id: text("id").primaryKey(),
+  identifier: text("identifier").notNull(),
+  value: text("value").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const wallets = pgTable("wallets", {
-  userId: uuid("user_id")
+  userId: text("user_id")
     .primaryKey()
     .references(() => users.id, { onDelete: "cascade" }),
   balance: bigint("balance", { mode: "number" }).notNull().default(0),
@@ -30,7 +82,7 @@ export const ledgerEntries = pgTable(
   "ledger_entries",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    userId: uuid("user_id")
+    userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     type: text("type", { enum: ledgerTypeValues }).notNull(),
@@ -82,7 +134,7 @@ export const bets = pgTable(
     roundId: bigint("round_id", { mode: "number" })
       .notNull()
       .references(() => rounds.id, { onDelete: "cascade" }),
-    userId: uuid("user_id")
+    userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     stake: bigint("stake", { mode: "number" }).notNull(),
@@ -103,6 +155,16 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   wallet: one(wallets, { fields: [users.id], references: [wallets.userId] }),
   ledgerEntries: many(ledgerEntries),
   bets: many(bets),
+  sessions: many(sessions),
+  accounts: many(accounts),
+}));
+
+export const sessionsRelations = relations(sessions, ({ one }) => ({
+  user: one(users, { fields: [sessions.userId], references: [users.id] }),
+}));
+
+export const accountsRelations = relations(accounts, ({ one }) => ({
+  user: one(users, { fields: [accounts.userId], references: [users.id] }),
 }));
 
 export const roundsRelations = relations(rounds, ({ many }) => ({

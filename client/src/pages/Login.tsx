@@ -3,12 +3,10 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { ChickenMark } from "@/components/ChickenMascot";
 import SiteHeader from "@/components/SiteHeader";
-import { useAuth } from "@/hooks/useAuth";
-import { ApiError } from "@/lib/api";
+import { AuthApiError, useAuth } from "@/hooks/useAuth";
 
 const LOGIN_ERRORS: Record<string, string> = {
-  INVALID_CREDENTIALS: "Email ou mot de passe incorrect.",
-  INVALID_INPUT: "Merci de vérifier les champs du formulaire.",
+  INVALID_EMAIL_OR_PASSWORD: "Email ou mot de passe incorrect.",
 };
 
 export default function Login() {
@@ -27,7 +25,7 @@ export default function Login() {
       await login(email, password);
       navigate("/game");
     } catch (err) {
-      setError(err instanceof ApiError ? LOGIN_ERRORS[err.code] ?? "Connexion impossible." : "Connexion impossible.");
+      setError(err instanceof AuthApiError ? LOGIN_ERRORS[err.code] ?? "Connexion impossible." : "Connexion impossible.");
     } finally {
       setBusy(false);
     }

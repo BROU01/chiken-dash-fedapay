@@ -32,7 +32,7 @@ L'état de la manche est **interrogé par sondage** (polling HTTP toutes les 250
 
 ```bash
 pnpm install
-cp .env.example .env        # renseigner DATABASE_URL (Neon...), JWT_SECRET, FEDAPAY_*
+cp .env.example .env        # renseigner DATABASE_URL (Neon...), BETTER_AUTH_SECRET, FEDAPAY_*
 pnpm db:migrate              # applique les migrations Drizzle à la base indiquée par DATABASE_URL
 pnpm dev                     # Vite (port 3000) + API Express (port 8787, proxée par Vite)
 pnpm db:studio               # explorer/éditer les données via Drizzle Studio
@@ -45,7 +45,7 @@ Après une modification de `db/schema.ts`, régénérer une migration avec `pnpm
 ## Déploiement sur Vercel
 
 1. Créer une base Postgres managée (Neon, Supabase, ou Vercel Postgres) et copier son `DATABASE_URL`.
-2. Sur le projet Vercel, renseigner dans **Settings → Environment Variables** toutes les clés listées dans `.env.example` : `DATABASE_URL`, `JWT_SECRET`, `APP_BASE_URL` (l'URL Vercel du projet), `FEDAPAY_SECRET_KEY`, `FEDAPAY_ENVIRONMENT`, `FEDAPAY_WEBHOOK_SECRET`, `WITHDRAWAL_AUTO_APPROVE`.
+2. Sur le projet Vercel, renseigner dans **Settings → Environment Variables** toutes les clés listées dans `.env.example` : `DATABASE_URL`, `BETTER_AUTH_SECRET`, `APP_BASE_URL` (l'URL Vercel du projet), `FEDAPAY_SECRET_KEY`, `FEDAPAY_ENVIRONMENT`, `FEDAPAY_WEBHOOK_SECRET`, `WITHDRAWAL_AUTO_APPROVE`.
 3. Lancer `pnpm db:migrate` une fois (en local, avec `DATABASE_URL` pointé vers la base de production) pour créer les tables avant le premier déploiement.
 4. Déployer (`vercel.json` définit déjà `buildCommand`, `outputDirectory` et la réécriture SPA). Les routes `/api/*` sont servies par `api/[...path].ts`, le reste par les fichiers statiques du build.
 5. Dans le tableau de bord FedaPay, configurer le **webhook** vers `https://<votre-domaine>/api/wallet/webhooks/fedapay` et copier son secret de signature dans `FEDAPAY_WEBHOOK_SECRET`.
@@ -72,7 +72,7 @@ Pour chaque manche : une graine serveur est générée, son empreinte SHA-256 pu
 ## Stack technique
 
 - React 19, TypeScript, Vite 7, Tailwind CSS 4, composants shadcn/Radix, icônes lucide-react.
-- Express 5, Postgres (Neon) + Drizzle ORM, JWT (`jsonwebtoken`) + `bcryptjs` pour l'authentification.
+- Express 5, Postgres (Neon) + Drizzle ORM, Better Auth (email/mot de passe) pour l'authentification.
 - FedaPay pour les paiements Mobile Money.
 
 ## Licence
